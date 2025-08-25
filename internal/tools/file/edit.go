@@ -1,10 +1,10 @@
 package file
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
-	"path"
 	"strings"
 
 	"agent/internal/schema"
@@ -13,9 +13,9 @@ import (
 
 // EditFileInput represents the input parameters for editing a file
 type EditFileInput struct {
-	Path   string `json:"path" jsonschema_description:"The path to the file"`
-	OldStr string `json:"old_str" jsonschema_description:"Text to search for - must match exactly and must only have one match exactly"`
-	NewStr string `json:"new_str" jsonschema_description:"Text to replace old_str with"`
+	Path   string `json:"path" jsonschema_description:"Path to existing file to edit"`
+	OldStr string `json:"old_str" jsonschema_description:"Exact text to find and replace (must appear exactly once)"`
+	NewStr string `json:"new_str" jsonschema_description:"Replacement text (must differ from old_str)"`
 }
 
 // EditFileTool implements the file editing functionality
@@ -25,17 +25,12 @@ type EditFileTool struct{}
 func (t EditFileTool) Definition() tools.ToolDefinition {
 	return tools.ToolDefinition{
 		Name: "edit_file",
-		Description: `Make edits to a text file or create a new file.
+		Description: `Edit an existing text file by replacing text.
 
-For editing existing files:
+- File must already exist (use create_file or write_file for new files)
 - Replaces 'old_str' with 'new_str' in the given file
-- 'old_str' and 'new_str' MUST be different from each other
 - 'old_str' must exist exactly once in the file
-
-For creating new files:
-- Use an empty 'old_str' or common placeholders like: FILE_DOES_NOT_EXIST, NEW_FILE, PLACEHOLDER, empty, CREATE_FILE
-- 'new_str' will be the content of the new file
-- Directory structure will be created if needed`,
+- 'old_str' and 'new_str' must be different`,
 		InputSchema: schema.GenerateSchema[EditFileInput](),
 	}
 }
@@ -49,96 +44,61 @@ func (t EditFileTool) Execute(input json.RawMessage) (string, error) {
 	}
 
 	if editFileInput.Path == "" {
-		return "", fmt.Errorf("path cannot be empty")
+		return "", fmt.Errorf("path cannot be empty. Provide a file path to edit")
 	}
 
-	// Check if we're trying to create a new file
-	if t.isFileCreationRequest(editFileInput.OldStr) {
-		// For file creation, allow same old_str and new_str since old_str is just a placeholder
-		return t.createNewFile(editFileInput.Path, editFileInput.NewStr)
+	if editFileInput.OldStr == "" {
+		return "", fmt.Errorf("old_str cannot be empty. Use create_file or write_file for new files")
 	}
 
-	// For normal edits, old_str and new_str must be different
 	if editFileInput.OldStr == editFileInput.NewStr {
 		return "", fmt.Errorf("old_str and new_str must be different")
 	}
 
+	// Read existing file
 	content, err := os.ReadFile(editFileInput.Path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			// File doesn't exist and we're not in file creation mode
-			return "", fmt.Errorf("file does not exist. To create a new file, use an empty old_str or one of these placeholders: FILE_DOES_NOT_EXIST, NEW_FILE, PLACEHOLDER")
+			return "", fmt.Errorf("file does not exist. Use create_file or write_file for new files")
 		}
 		return "", err
 	}
 
+	// Check if file is binary to prevent corruption
+	if isBinary(content) {
+		return "", fmt.Errorf("cannot edit binary file %s. Use write_file to replace binary files entirely", editFileInput.Path)
+	}
+
 	oldContent := string(content)
 
-	// Special case: if old_str is empty and we want to add content to empty file
-	if editFileInput.OldStr == "" {
-		if oldContent == "" {
-			// Add content to empty file
-			err = os.WriteFile(editFileInput.Path, []byte(editFileInput.NewStr), 0644)
-			if err != nil {
-				return "", err
-			}
-			return "OK", nil
-		} else {
-			return "", fmt.Errorf("old_str cannot be empty when file has existing content. Please specify the text to replace")
-		}
-	}
-
-	// Normal replacement
-	newContent := strings.Replace(oldContent, editFileInput.OldStr, editFileInput.NewStr, -1)
-
-	if oldContent == newContent {
+	// Check that old_str exists exactly once
+	count := strings.Count(oldContent, editFileInput.OldStr)
+	if count == 0 {
 		return "", fmt.Errorf("old_str '%s' not found in file", editFileInput.OldStr)
 	}
+	if count > 1 {
+		return "", fmt.Errorf("old_str '%s' found %d times in file, must exist exactly once", editFileInput.OldStr, count)
+	}
+
+	// Perform replacement
+	newContent := strings.Replace(oldContent, editFileInput.OldStr, editFileInput.NewStr, 1)
 
 	err = os.WriteFile(editFileInput.Path, []byte(newContent), 0644)
 	if err != nil {
 		return "", err
 	}
 
-	return "OK", nil
+	return fmt.Sprintf("Successfully edited file %s", editFileInput.Path), nil
 }
 
-// isFileCreationRequest checks if the old_str indicates a request to create a new file
-func (t EditFileTool) isFileCreationRequest(oldStr string) bool {
-	// Common placeholder values that indicate file creation intent
-	creationPlaceholders := []string{
-		"",                    // Empty string (original behavior)
-		"FILE_DOES_NOT_EXIST", // Explicit placeholder
-		"NEW_FILE",            // Clear intent
-		"PLACEHOLDER",         // Generic placeholder
-		"empty",               // Common natural language
-		"CREATE_FILE",         // Another explicit option
+// isBinary detects if a file contains binary data to prevent text editing corruption
+func isBinary(data []byte) bool {
+	// Simple heuristic: if file contains null bytes in first 512 bytes, it's likely binary
+	checkLen := 512
+	if len(data) < checkLen {
+		checkLen = len(data)
 	}
-
-	for _, placeholder := range creationPlaceholders {
-		if oldStr == placeholder {
-			return true
-		}
-	}
-	return false
-}
-
-// createNewFile creates a new file with the given content
-func (t EditFileTool) createNewFile(filePath, content string) (string, error) {
-	dir := path.Dir(filePath)
-	if dir != "." {
-		err := os.MkdirAll(dir, 0755)
-		if err != nil {
-			return "", fmt.Errorf("failed to create directory: %w", err)
-		}
-	}
-
-	err := os.WriteFile(filePath, []byte(content), 0644)
-	if err != nil {
-		return "", fmt.Errorf("failed to create file: %w", err)
-	}
-
-	return fmt.Sprintf("Successfully created file %s", filePath), nil
+	return bytes.IndexByte(data[:checkLen], 0) != -1
 }
 
 func init() {

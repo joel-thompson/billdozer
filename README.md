@@ -39,7 +39,7 @@ The modular architecture separates concerns clearly:
 - **internal/tools/** - Tool interfaces, registry, and implementations
   - **types.go** - Common interfaces and type definitions
   - **registry.go** - Automatic tool registration system  
-  - **file/** - File operation tools (read, list, edit)
+  - **file/** - File operation tools (read, list, create, write, edit)
   - **[other packages]** - Additional tool categories as needed
 
 ## Working With Tools
