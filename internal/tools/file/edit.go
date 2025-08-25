@@ -36,7 +36,7 @@ func (t EditFileTool) Definition() tools.ToolDefinition {
 }
 
 // Execute performs the file editing operation
-func (t EditFileTool) Execute(input json.RawMessage) (string, error) {
+func (t EditFileTool) Execute(ctx *tools.ToolContext, input json.RawMessage) (string, error) {
 	var editFileInput EditFileInput
 	err := json.Unmarshal(input, &editFileInput)
 	if err != nil {

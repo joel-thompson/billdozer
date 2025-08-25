@@ -4,12 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"agent/internal/schema"
 	"agent/internal/tools"
 )
 
-// Error message constants (shared across all tools)
+// Error message constants specific to delete operations
 const (
 	errMsgFileNotFound = "file not found: %s"
 	errMsgIsDirectory  = "%s is a directory, not a file. Use directory tools for directory operations"
@@ -40,6 +41,7 @@ Requirements:
 - Cannot be undone
 
 Safety:
+- Requires explicit user confirmation before deletion
 - Validates file exists before deletion
 - Clear error messages for missing files
 - Does not delete directories (use with caution)`,
@@ -47,7 +49,7 @@ Safety:
 	}
 }
 
-func (t DeleteFileTool) Execute(input json.RawMessage) (string, error) {
+func (t DeleteFileTool) Execute(ctx *tools.ToolContext, input json.RawMessage) (string, error) {
 	deleteInput, err := t.parseAndValidateInput(input)
 	if err != nil {
 		return "", err
@@ -55,6 +57,11 @@ func (t DeleteFileTool) Execute(input json.RawMessage) (string, error) {
 
 	if err := t.validateFileExists(deleteInput.Path); err != nil {
 		return "", err
+	}
+
+	// Ask for user confirmation before deletion
+	if !t.confirmDeletion(ctx, deleteInput.Path) {
+		return "File deletion cancelled by user", nil
 	}
 
 	if err := os.Remove(deleteInput.Path); err != nil {
@@ -92,6 +99,27 @@ func (t DeleteFileTool) validateFileExists(path string) error {
 	}
 
 	return nil
+}
+
+// confirmDeletion asks the user to confirm file deletion
+func (t DeleteFileTool) confirmDeletion(ctx *tools.ToolContext, path string) bool {
+	// Check if user input function is available
+	if ctx.GetUserInput == nil {
+		fmt.Printf("Warning: User input not available, proceeding with deletion\n")
+		return true
+	}
+
+	// Ask for user confirmation
+	fmt.Printf("⚠️ Billdozer wants to delete the file: \u001b[93m%s\u001b[0m\n", path)
+	fmt.Printf("Do you want to proceed? (yes/y to confirm, anything else to cancel): ")
+
+	response, ok := ctx.GetUserInput()
+	if !ok {
+		return false
+	}
+
+	response = strings.ToLower(strings.TrimSpace(response))
+	return response == "yes" || response == "y"
 }
 
 func init() {

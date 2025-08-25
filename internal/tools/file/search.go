@@ -70,7 +70,7 @@ Note: Recursive patterns (**) support depends on Go's filepath.Glob implementati
 	}
 }
 
-func (t GlobSearchTool) Execute(input json.RawMessage) (string, error) {
+func (t GlobSearchTool) Execute(ctx *tools.ToolContext, input json.RawMessage) (string, error) {
 	searchInput, err := t.parseAndValidateInput(input)
 	if err != nil {
 		return "", err

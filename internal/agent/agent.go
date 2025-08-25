@@ -87,7 +87,10 @@ func (a *Agent) executeTool(id, name string, input json.RawMessage) anthropic.Co
 	}
 
 	fmt.Printf("\u001b[92mtool\u001b[0m: %s(%s)\n", name, input)
-	response, err := toolDef.Function(input)
+	toolCtx := &tools.ToolContext{
+		GetUserInput: a.getUserMessage,
+	}
+	response, err := toolDef.Function(toolCtx, input)
 	if err != nil {
 		return anthropic.NewToolResultBlock(id, err.Error(), true)
 	}

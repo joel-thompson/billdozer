@@ -93,7 +93,7 @@ Do not use this with directory names.`,
 	}
 }
 
-func (t ReadFileTool) Execute(input json.RawMessage) (string, error) {
+func (t ReadFileTool) Execute(ctx *tools.ToolContext, input json.RawMessage) (string, error) {
 	readInput, err := t.parseAndValidateInput(input)
 	if err != nil {
 		return "", err

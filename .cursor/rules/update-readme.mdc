@@ -2,4 +2,4 @@
 alwaysApply: true
 ---
 
-When adding or updating a tool, update the README.md file to reflect the changes.
+When adding or updating a tool, update the README.md file to reflect the changes. The README should describe the current architecture, not frame it as an update

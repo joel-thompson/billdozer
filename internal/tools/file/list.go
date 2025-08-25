@@ -27,7 +27,7 @@ func (t ListFilesTool) Definition() tools.ToolDefinition {
 }
 
 // Execute performs the file listing operation
-func (t ListFilesTool) Execute(input json.RawMessage) (string, error) {
+func (t ListFilesTool) Execute(ctx *tools.ToolContext, input json.RawMessage) (string, error) {
 	var listFilesInput ListFilesInput
 	err := json.Unmarshal(input, &listFilesInput)
 	if err != nil {

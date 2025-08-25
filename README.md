@@ -26,8 +26,32 @@ This design prioritizes maintainability and extensibility:
 - **Logical Organization** - Related tools are grouped in packages
 - **Type Safety** - Go's compiler catches errors at build time
 - **Effortless Scaling** - Add dozens of tools without increasing complexity
+- **Clean Dependencies** - Tools receive dependencies through context injection, no globals
 
 The auto-registration system eliminates the most common source of maintenance overhead: manually updating tool lists across multiple files.
+
+## Tool Dependency Injection
+
+Tools use dependency injection through `ToolContext` for clean dependency management:
+
+```go
+// Tools receive context with their dependencies
+func (t MyTool) Execute(ctx *tools.ToolContext, input json.RawMessage) (string, error) {
+    // Access user input function through context
+    if ctx.GetUserInput != nil {
+        response, ok := ctx.GetUserInput()
+        // ... handle user input
+    }
+    return "result", nil
+}
+```
+
+**Benefits of this approach:**
+- **Explicit Dependencies**: Like TypeScript's constructor injection, dependencies are explicit
+- **No Global State**: Context is passed down cleanly through the call chain
+- **Testability**: Easy to mock `ToolContext` for unit tests
+- **Type Safety**: Context structure is typed and validated at compile time
+- **Minimal Main**: main.go only handles setup and startup
 
 ## Project Structure
 
@@ -37,7 +61,7 @@ The modular architecture separates concerns clearly:
 - **internal/agent/** - Conversation management and Claude integration  
 - **internal/schema/** - JSON schema generation utilities
 - **internal/tools/** - Tool interfaces, registry, and implementations
-  - **types.go** - Common interfaces and type definitions
+  - **types.go** - Common interfaces, ToolContext, and type definitions
   - **registry.go** - Automatic tool registration system  
   - **file/** - File operation tools (read, list, write, delete_file, glob_search, edit)
   - **[other packages]** - Additional tool categories as needed
@@ -58,9 +82,10 @@ The modular architecture separates concerns clearly:
   - Read line ranges: `{"path": "data.txt", "offset": 5, "limit": 20}`
   - Cross-platform line ending support
 
-- **`delete_file`** - Safe file deletion
+- **`delete_file`** - Safe file deletion with user confirmation
   - Deletes existing files: `{"path": "unwanted_file.txt"}`
   - Validates file exists before deletion
+  - Prompts user for confirmation through ToolContext
   - Only deletes files, not directories
   - Clear error messages for safety
 
@@ -79,7 +104,7 @@ The modular architecture separates concerns clearly:
 ### Adding New Tools
 
 1. **Create package** - Make a new directory under `internal/tools/` for your tool category
-2. **Implement tool** - Create a struct with `Definition()` and `Execute()` methods
+2. **Implement tool** - Create a struct with `Definition()` and `Execute(ctx *tools.ToolContext, input json.RawMessage)` methods
 3. **Define input** - Create an input struct with JSON schema tags for parameters  
 4. **Auto-register** - Add `init()` function that calls `tools.DefaultRegistry.RegisterTool()`
 5. **Import package** - Add import to `main.go` with `_` prefix to trigger registration
@@ -89,13 +114,14 @@ The modular architecture separates concerns clearly:
 1. Navigate to the tool file in its package directory
 2. Modify the implementation in the `Execute` method  
 3. Update input schema if you change parameters
-4. No other files need changes - the registry handles everything automatically
+4. Use `ctx.GetUserInput` for user interaction
+5. No other files need changes - the registry handles everything automatically
 
 Tools are completely self-contained, so changes only affect the individual tool file.
 
 ### Testing Tools
 
-Create test files alongside tool implementations. Test the `Execute` method directly with mock JSON input to verify behavior without depending on the full agent system. Each tool can be tested in complete isolation.
+Create test files alongside tool implementations. Test the `Execute` method directly with mock JSON input and a mock `ToolContext` to verify behavior without depending on the full agent system. Each tool can be tested in complete isolation.
 
 ### Best Practices
 
@@ -106,7 +132,8 @@ Create test files alongside tool implementations. Test the `Execute` method dire
 - Group related tools in the same package
 - Handle errors gracefully with clear error messages
 - Use the `schema.GenerateSchema[T]()` helper for input validation
-- Test tools individually before integrating
+- Access user input through `ctx.GetUserInput`
+- Test tools individually with mocked ToolContext before integrating
 
 ## Contributing
 
@@ -114,3 +141,4 @@ Create test files alongside tool implementations. Test the `Execute` method dire
 2. Add tests for new tools
 3. Update this README if you add new tool categories
 4. Ensure tools follow the established conventions
+5. Use ToolContext for dependencies

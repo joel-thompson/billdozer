@@ -10,12 +10,10 @@ import (
 	"agent/internal/tools"
 )
 
-// Constants for better maintainability
+// Constants specific to write operations
 const (
 	defaultFilePermissions = 0644
 	defaultDirPermissions  = 0755
-	errMsgMissingParam     = "parameter %q is required"
-	errMsgOperationFailed  = "failed to %s: %w"
 )
 
 // WriteFileInput with validation interface
@@ -55,7 +53,7 @@ Behavior:
 	}
 }
 
-func (t WriteFileTool) Execute(input json.RawMessage) (string, error) {
+func (t WriteFileTool) Execute(ctx *tools.ToolContext, input json.RawMessage) (string, error) {
 	writeInput, err := t.parseAndValidateInput(input)
 	if err != nil {
 		return "", err
