@@ -11,6 +11,7 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 
 	// Import tool packages to register them
+	_ "agent/internal/tools/command"
 	_ "agent/internal/tools/file"
 )
 

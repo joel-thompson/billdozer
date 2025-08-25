@@ -1,0 +1,15 @@
+commands:
+  lint:
+    command: "golangci-lint run"
+    description: "Run Go linter to check code quality and style"
+    timeout_seconds: 30
+  
+  test:
+    command: "go test ./..."
+    description: "Run all Go tests in the project"
+    timeout_seconds: 60
+  
+  build:
+    command: "go build -o bin/app main.go"
+    description: "Build the Go application"
+    timeout_seconds: 30
