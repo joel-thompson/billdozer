@@ -1,125 +1,261 @@
-# Command Execution Tool Plan
+# Command Execution Tool Implementation Guide
 
-## Overview
+## What We're Building
 
-Add a command execution tool that allows the AI agent to run whitelisted commands (linting, tests, build, etc.) with per-project configuration.
+A simple tool that lets the AI agent run whitelisted validation commands (lint, test, build) to validate code changes. Commands are configured per-project in `.agent-commands.yml` for security.
 
-## Goals
+## Step 1: Create Configuration Types
 
-- Enable AI agent to validate code it creates by running tests, linters, build commands
-- Maintain security through a whitelist approach - agent cannot run arbitrary commands  
-- Support per-project configuration rather than hardcoded commands
-- Include descriptions for each command to help the agent understand when to use them
-
-## Architecture
-
-### Configuration File
-
-Create a `.agent-commands.yml` file in project root:
-
-```yaml
-version: "1.0"
-commands:
-  lint:
-    command: "golangci-lint run"
-    description: "Run Go linter to check code quality and style"
-    working_directory: "."
-    timeout: 30s
-  
-  test:
-    command: "go test ./..."
-    description: "Run all Go tests in the project"
-    working_directory: "."
-    timeout: 60s
-  
-  build:
-    command: "go build -o bin/app main.go"
-    description: "Build the Go application"
-    working_directory: "."
-    timeout: 30s
-  
-  tidy:
-    command: "go mod tidy"
-    description: "Clean up Go module dependencies"
-    working_directory: "."
-    timeout: 10s
-```
-
-### Implementation Structure
-
-1. **Config Package** (`internal/config/`)
-   - `commands.go` - Parse `.agent-commands.yml`
-   - `types.go` - Configuration struct definitions
-
-2. **Command Tool** (`internal/tools/command/`)
-   - `execute.go` - Command execution tool implementation
-   - Input validation, timeout handling, security checks
-
-3. **Tool Registration**
-   - Auto-register command tool in `main.go`
-   - Tool discovers and loads project config automatically
-
-## Implementation Details
-
-### Configuration Schema
+Create `internal/config/commands.go`:
 
 ```go
+package config
+
+import (
+    "fmt"
+    "os"
+    "gopkg.in/yaml.v3"
+)
+
 type CommandsConfig struct {
-    Version  string                 `yaml:"version"`
     Commands map[string]CommandSpec `yaml:"commands"`
 }
 
 type CommandSpec struct {
-    Command          string        `yaml:"command"`
-    Description      string        `yaml:"description"`
-    WorkingDirectory string        `yaml:"working_directory"`
-    Timeout          time.Duration `yaml:"timeout"`
+    Command        string `yaml:"command"`
+    Description    string `yaml:"description"`
+    TimeoutSeconds int    `yaml:"timeout_seconds"`
+}
+
+func LoadCommandsConfig(path string) (*CommandsConfig, error) {
+    data, err := os.ReadFile(path)
+    if err != nil {
+        return nil, fmt.Errorf("failed to read config file: %w", err)
+    }
+    
+    var config CommandsConfig
+    if err := yaml.Unmarshal(data, &config); err != nil {
+        return nil, fmt.Errorf("failed to parse config: %w", err)
+    }
+    
+    return &config, nil
 }
 ```
 
-### Tool Input
+## Step 2: Create Command Tool
+
+Create `internal/tools/command/execute.go`:
 
 ```go
+package command
+
+import (
+    "context"
+    "encoding/json"
+    "fmt"
+    "os/exec"
+    "strings"
+    "time"
+    
+    "agent/internal/config"
+    "agent/internal/schema"
+    "agent/internal/tools"
+)
+
+// Error message constants
+const (
+    errMsgMissingParam     = "parameter %q is required"
+    errMsgOperationFailed  = "failed to %s: %w"
+    errMsgCommandNotFound  = "unknown command %q. Available commands: %s"
+    errMsgEmptyCommand     = "empty command for %q"
+    errMsgCommandFailed    = "command %q failed: %w"
+)
+
 type CommandInput struct {
-    Name string `json:"name" jsonschema_description:"Name of the command to execute from project configuration"`
+    Name string `json:"name" jsonschema:"required" jsonschema_description:"Name of the command to execute from project configuration, or 'list' to show available commands"`
+}
+
+// Validate implements input validation
+func (c *CommandInput) Validate() error {
+    if c.Name == "" {
+        return fmt.Errorf(errMsgMissingParam, "name")
+    }
+    return nil
+}
+
+type CommandTool struct {
+    config *config.CommandsConfig
+}
+
+func (t CommandTool) Definition() tools.ToolDefinition {
+    return tools.ToolDefinition{
+        Name: "execute_command",
+        Description: `Execute predefined commands for code validation (lint, test, build).
+
+Usage Examples:
+- {"name": "list"} // Show available commands
+- {"name": "lint"} // Run linter
+- {"name": "test"} // Run tests  
+- {"name": "build"} // Build application
+
+Security:
+- Only commands defined in .agent-commands.yml can be executed
+- Commands have timeouts to prevent hanging processes
+- No arbitrary command execution allowed
+
+Use this tool after making code changes to validate they work correctly.`,
+        InputSchema: schema.GenerateSchema[CommandInput](),
+    }
+}
+
+func (t CommandTool) Execute(ctx *tools.ToolContext, input json.RawMessage) (string, error) {
+    commandInput, err := t.parseAndValidateInput(input)
+    if err != nil {
+        return "", err
+    }
+    
+    // Load config each time to pick up changes
+    config, err := config.LoadCommandsConfig(".agent-commands.yml")
+    if err != nil {
+        return "", fmt.Errorf("failed to load command configuration: %w", err)
+    }
+    
+    // Handle list command
+    if commandInput.Name == "list" {
+        return t.listCommands(config), nil
+    }
+    
+    // Execute specific command
+    return t.executeCommand(config, commandInput.Name)
+}
+
+// Helper methods for better separation of concerns
+func (t CommandTool) parseAndValidateInput(input json.RawMessage) (*CommandInput, error) {
+    var commandInput CommandInput
+    if err := json.Unmarshal(input, &commandInput); err != nil {
+        return nil, fmt.Errorf("invalid JSON input: %w", err)
+    }
+    
+    if err := commandInput.Validate(); err != nil {
+        return nil, err
+    }
+    
+    return &commandInput, nil
+}
+
+func (t CommandTool) listCommands(config *config.CommandsConfig) string {
+    if len(config.Commands) == 0 {
+        return "No commands available. Create .agent-commands.yml file with command definitions."
+    }
+    
+    var result strings.Builder
+    result.WriteString("Available commands:\n")
+    for name, spec := range config.Commands {
+        result.WriteString(fmt.Sprintf("- %s: %s\n", name, spec.Description))
+    }
+    return result.String()
+}
+
+func (t CommandTool) executeCommand(config *config.CommandsConfig, commandName string) (string, error) {
+    spec, exists := config.Commands[commandName]
+    if !exists {
+        return "", fmt.Errorf(errMsgCommandNotFound, commandName, t.getCommandNames(config))
+    }
+    
+    // Parse command and args
+    parts := strings.Fields(spec.Command)
+    if len(parts) == 0 {
+        return "", fmt.Errorf(errMsgEmptyCommand, commandName)
+    }
+    
+    // Create command with timeout
+    ctx, cancel := context.WithTimeout(context.Background(), 
+        time.Duration(spec.TimeoutSeconds)*time.Second)
+    defer cancel()
+    
+    cmd := exec.CommandContext(ctx, parts[0], parts[1:]...)
+    
+    output, err := cmd.CombinedOutput()
+    if err != nil {
+        // Return output even on failure so agent can see error details
+        return string(output), fmt.Errorf(errMsgCommandFailed, commandName, err)
+    }
+    
+    return string(output), nil
+}
+
+func (t CommandTool) getCommandNames(config *config.CommandsConfig) string {
+    var names []string
+    for name := range config.Commands {
+        names = append(names, name)
+    }
+    return strings.Join(names, ", ")
+}
+
+func init() {
+    tools.DefaultRegistry.RegisterTool(CommandTool{})
 }
 ```
 
-### Security Features
+## Step 3: Register Tool
 
-- Only commands defined in `.agent-commands.yml` can be executed
-- Configurable timeouts prevent runaway processes
-- Working directory is restricted to project scope
-- Command output is captured and returned to agent
+Add import to `main.go`:
 
-### Error Handling
+```go
+// Import tool packages to register them
+_ "agent/internal/tools/file"
+_ "agent/internal/tools/command"  // Add this line
+```
 
-- Missing config file: Inform agent no commands are available
-- Invalid command name: List available commands  
-- Command failure: Return exit code and error output
-- Timeout: Terminate process and return timeout error
+The `init()` function in the command package will automatically register the tool when imported.
 
-## Usage Flow
+## Step 4: Create Example Configuration
 
-1. Agent needs to validate code (e.g., after making changes)
-2. Agent calls `execute_command` tool with command name (e.g., "test")
-3. Tool reads `.agent-commands.yml` from project root
-4. Tool validates command exists and executes it with configured settings
-5. Tool returns command output and exit status to agent
-6. Agent can interpret results and take appropriate action
+Create `.agent-commands.yml` in project root:
 
-## Benefits
+```yaml
+commands:
+  lint:
+    command: "golangci-lint run"
+    description: "Run Go linter to check code quality and style"
+    timeout_seconds: 30
+  
+  test:
+    command: "go test ./..."
+    description: "Run all Go tests in the project"
+    timeout_seconds: 60
+  
+  build:
+    command: "go build -o bin/app main.go"
+    description: "Build the Go application"
+    timeout_seconds: 30
+```
 
-- **Security**: Whitelisted commands only, no arbitrary execution
-- **Flexibility**: Each project defines its own relevant commands  
-- **Context**: Command descriptions help agent choose appropriate tools
-- **Reliability**: Timeouts and error handling prevent issues
-- **Maintainability**: Configuration separate from code
+## Step 5: Test Implementation
 
-## Next Steps
+Test these scenarios:
 
-1. Implement configuration parsing in `internal/config/`
-2. Create command execution tool in `internal/tools/command/`
-3. Add tool registration to `main.go`
-4. Create example `.agent-commands.yml` for this project
-5. Test with common Go development workflows
+1. **List commands**: Call with `{"name": "list"}` - should show available commands
+2. **Run lint**: Call with `{"name": "lint"}` - should run golangci-lint
+3. **Run test**: Call with `{"name": "test"}` - should run go test
+4. **Invalid command**: Call with `{"name": "xyz"}` - should show error with available commands
+5. **Missing config**: Remove `.agent-commands.yml` - should handle gracefully
+
+## Expected Agent Workflow
+
+1. Agent makes code changes
+2. Agent calls `execute_command` with `name: "list"` to see what's available
+3. Agent gets: "Available commands:\n- lint: Run Go linter...\n- test: Run all tests..."
+4. Agent calls `execute_command` with `name: "lint"` to check code quality
+5. Agent gets lint results, fixes issues if needed
+6. Agent calls `execute_command` with `name: "test"` to run tests
+7. Agent gets test results, fixes issues if needed
+8. Agent calls `execute_command` with `name: "build"` to ensure it compiles
+9. Agent is confident the code works
+
+## Security Features
+
+- Only commands in `.agent-commands.yml` can run
+- Commands have timeouts to prevent hanging
+- No arbitrary command execution
+- Commands run in project directory only
