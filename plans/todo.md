@@ -2,7 +2,7 @@
 
 ## Steps to Refactor main.go
 
-### 1. Create `tools.go`
+### 1. Edit `tools.go`
 - [ ] Extract `ToolDefinition` struct
 - [ ] Move all tool input structs (ReadFileInput, ListFilesInput, EditFileInput)
 - [ ] Move all tool implementations (ReadFile, ListFiles, EditFile)
@@ -10,7 +10,7 @@
 - [ ] Move `GenerateSchema` function
 - [ ] Move helper functions (createNewFile)
 
-### 2. Create `agent.go`
+### 2. Edit `agent.go`
 - [ ] Extract `Agent` struct
 - [ ] Move `NewAgent` constructor
 - [ ] Move `Run` method
