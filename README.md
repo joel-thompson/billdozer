@@ -15,7 +15,7 @@ A modular AI agent CLI built in Go that can execute tools through conversation w
 2. Set your Anthropic API key as an environment variable
 3. Run the application with `go run main.go`
 
-The CLI starts an interactive conversation with Claude. Claude automatically uses available tools when appropriate for tasks like reading files, listing directories, or editing text files.
+The CLI starts an interactive conversation with Claude. Claude automatically uses available tools when appropriate for tasks like reading files, writing files, searching for files by patterns, deleting files, listing directories, or editing text files.
 
 ## Why This Architecture
 
@@ -41,6 +41,38 @@ The modular architecture separates concerns clearly:
   - **registry.go** - Automatic tool registration system  
   - **file/** - File operation tools (read, list, write, delete_file, glob_search, edit)
   - **[other packages]** - Additional tool categories as needed
+
+## Available Tools
+
+### File Operations
+
+- **`write`** - Unified file creation and writing tool
+  - Creates empty files when content is omitted: `{"path": "empty.txt", "content": ""}`
+  - Writes content to files: `{"path": "config.yml", "content": "version: 1.0\nname: myapp"}`
+  - Always overwrites existing files (eliminates "file exists" errors)
+  - Auto-creates parent directories as needed
+
+- **`read_file`** - Enhanced file reading with line range support
+  - Read entire files: `{"path": "main.go"}`
+  - Read from specific line: `{"path": "config.yml", "offset": 10}`
+  - Read line ranges: `{"path": "data.txt", "offset": 5, "limit": 20}`
+  - Cross-platform line ending support
+
+- **`delete_file`** - Safe file deletion
+  - Deletes existing files: `{"path": "unwanted_file.txt"}`
+  - Validates file exists before deletion
+  - Only deletes files, not directories
+  - Clear error messages for safety
+
+- **`glob_search`** - Pattern-based file searching
+  - Find files by pattern: `{"pattern": "*.go"}`
+  - Search in specific directories: `{"pattern": "test_*.txt", "path": "tests"}`
+  - Supports glob patterns (`*`, `?`, `[abc]`)
+  - Returns structured results with match count
+
+- **`list_files`** - Directory listing (existing tool)
+
+- **`edit_file`** - Single edit operations (existing tool)
 
 ## Working With Tools
 
