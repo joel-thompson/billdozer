@@ -137,8 +137,12 @@ func EditFile(input json.RawMessage) (string, error) {
 		return "", err
 	}
 
-	if editFileInput.Path == "" || editFileInput.OldStr == editFileInput.NewStr {
-		return "", fmt.Errorf("invalid input parameters")
+	if editFileInput.Path == "" {
+		return "", fmt.Errorf("path cannot be empty")
+	}
+
+	if editFileInput.OldStr == editFileInput.NewStr {
+		return "", fmt.Errorf("old_str and new_str must be different")
 	}
 
 	content, err := os.ReadFile(editFileInput.Path)
@@ -150,6 +154,18 @@ func EditFile(input json.RawMessage) (string, error) {
 	}
 
 	oldContent := string(content)
+
+	// Special case: if old_str is empty and file content is empty, treat as "add content to empty file"
+	if editFileInput.OldStr == "" && oldContent == "" {
+		newContent := editFileInput.NewStr
+		err = os.WriteFile(editFileInput.Path, []byte(newContent), 0644)
+		if err != nil {
+			return "", err
+		}
+		return "OK", nil
+	}
+
+	// Normal replacement
 	newContent := strings.Replace(oldContent, editFileInput.OldStr, editFileInput.NewStr, -1)
 
 	if oldContent == newContent && editFileInput.OldStr != "" {
