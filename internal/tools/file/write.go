@@ -10,75 +10,107 @@ import (
 	"agent/internal/tools"
 )
 
-// WriteFileInput represents the input parameters for writing to a file
+// Constants for better maintainability
+const (
+	defaultFilePermissions = 0644
+	defaultDirPermissions  = 0755
+	errMsgMissingParam     = "parameter %q is required"
+	errMsgOperationFailed  = "failed to %s: %w"
+)
+
+// WriteFileInput with validation interface
 type WriteFileInput struct {
-	Path    string `json:"path" jsonschema:"required" jsonschema_description:"File path to write content to (creates new file or overwrites existing). Example: 'src/main.go' or 'docs/readme.md'"`
-	Content string `json:"content" jsonschema:"required" jsonschema_description:"Text content to write to the file. This parameter is REQUIRED - you must provide the actual content you want written to the file. Cannot be empty."`
+	Path    string `json:"path" jsonschema:"required" jsonschema_description:"File path to write to (creates new file or overwrites existing). Examples: 'src/main.go', 'docs/readme.md'"`
+	Content string `json:"content" jsonschema_description:"Content to write to file. Leave empty to create an empty file (like touch command). Cannot be null, but can be empty string."`
 }
 
-// WriteFileTool implements file writing functionality
+// Validate implements input validation
+func (w *WriteFileInput) Validate() error {
+	if w.Path == "" {
+		return fmt.Errorf(errMsgMissingParam, "path")
+	}
+	return nil
+}
+
 type WriteFileTool struct{}
 
-// Definition returns the tool definition for the write file tool
 func (t WriteFileTool) Definition() tools.ToolDefinition {
 	return tools.ToolDefinition{
-		Name: "write_file",
-		Description: `Write content to a file, creating it if it doesn't exist or overwriting if it does.
-
-IMPORTANT: This tool requires BOTH a file path AND content to write.
+		Name: "write", // Changed from "write_file"
+		Description: `Write content to a file OR create an empty file.
+		
+IMPORTANT: This unified tool replaces both create_file and write_file.
 
 Usage Examples:
-- {"path": "config.yml", "content": "version: 1.0\nname: myapp"}
-- {"path": "src/utils.go", "content": "package main\n\nfunc main() {\n  // code here\n}"}
-- {"path": "docs/readme.md", "content": "# My Project\n\nThis is a readme file."}
-
-Requirements:
-- path: Must provide a file path (creates directories if needed)
-- content: Must provide actual text content (cannot be empty)
+- {"path": "empty.txt", "content": ""} // Creates empty file
+- {"path": "config.yml", "content": "version: 1.0\nname: myapp"} // Creates file with content
+- {"path": "new/dir/file.txt", "content": "test"} // Creates directories as needed
 
 Behavior:
-- Creates directories in the path if they don't exist
-- Overwrites existing files completely
-- Use create_file if you want to create an empty file
-- Use edit_file if you want to modify specific parts of an existing file`,
+- Empty content creates empty file (like touch command)
+- With content creates file with that content  
+- Always overwrites existing files
+- Creates parent directories automatically`,
 		InputSchema: schema.GenerateSchema[WriteFileInput](),
 	}
 }
 
-// Execute writes content to the specified file
 func (t WriteFileTool) Execute(input json.RawMessage) (string, error) {
-	var writeInput WriteFileInput
-	err := json.Unmarshal(input, &writeInput)
+	writeInput, err := t.parseAndValidateInput(input)
 	if err != nil {
 		return "", err
 	}
 
-	if writeInput.Path == "" {
-		return "", fmt.Errorf("path parameter is required. Please provide a file path like 'src/main.go' or 'docs/readme.md'. Example: {\"path\": \"myfile.txt\", \"content\": \"your content here\"}")
+	if err := t.ensureDirectoryExists(writeInput.Path); err != nil {
+		return "", err
 	}
 
-	if writeInput.Content == "" {
-		return "", fmt.Errorf("content parameter is required and cannot be empty. You must provide the actual text content to write to the file. Example: {\"path\": \"myfile.txt\", \"content\": \"your content here\"}. If you want to create an empty file, use the create_file tool instead")
+	return t.writeFile(writeInput.Path, writeInput.Content)
+}
+
+// Helper methods for better separation of concerns
+func (t WriteFileTool) parseAndValidateInput(input json.RawMessage) (*WriteFileInput, error) {
+	var writeInput WriteFileInput
+	if err := json.Unmarshal(input, &writeInput); err != nil {
+		return nil, fmt.Errorf("invalid JSON input: %w", err)
 	}
 
-	// Create directory if needed
-	dir := filepath.Dir(writeInput.Path)
+	if err := writeInput.Validate(); err != nil {
+		return nil, err
+	}
+
+	return &writeInput, nil
+}
+
+func (t WriteFileTool) ensureDirectoryExists(filePath string) error {
+	dir := filepath.Dir(filePath)
 	if dir != "." {
-		err := os.MkdirAll(dir, 0755)
-		if err != nil {
-			return "", fmt.Errorf("failed to create directory: %w", err)
+		if err := os.MkdirAll(dir, defaultDirPermissions); err != nil {
+			return fmt.Errorf(errMsgOperationFailed, "create directory", err)
 		}
 	}
+	return nil
+}
 
-	// Write the file (create or overwrite)
-	err = os.WriteFile(writeInput.Path, []byte(writeInput.Content), 0644)
-	if err != nil {
-		return "", fmt.Errorf("failed to write file: %w", err)
+func (t WriteFileTool) writeFile(path, content string) (string, error) {
+	if content == "" {
+		// Create empty file (replaces create_file functionality)
+		file, err := os.Create(path)
+		if err != nil {
+			return "", fmt.Errorf(errMsgOperationFailed, "create empty file", err)
+		}
+		file.Close()
+		return fmt.Sprintf("Created empty file %s", path), nil
 	}
 
-	return fmt.Sprintf("Successfully wrote content to file %s", writeInput.Path), nil
+	// Write content to file
+	if err := os.WriteFile(path, []byte(content), defaultFilePermissions); err != nil {
+		return "", fmt.Errorf(errMsgOperationFailed, "write file", err)
+	}
+
+	return fmt.Sprintf("Successfully wrote content to file %s", path), nil
 }
 
 func init() {
-	tools.DefaultRegistry.RegisterTool(WriteFileTool{})
+	tools.DefaultRegistry.RegisterTool(WriteFileTool{}) // Only this line remains - CreateFileTool removed
 }
