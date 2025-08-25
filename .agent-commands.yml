@@ -10,6 +10,6 @@ commands:
     timeout_seconds: 60
   
   build:
-    command: "go build -o bin/app main.go"
-    description: "Build the Go application"
+    command: "go build -o /dev/null main.go"
+    description: "Build the Go application to verify compilation"
     timeout_seconds: 30
