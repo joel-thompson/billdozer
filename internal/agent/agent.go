@@ -1,10 +1,11 @@
-package main
+package agent
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
 
+	"agent/internal/tools"
 	"github.com/anthropics/anthropic-sdk-go"
 )
 
@@ -12,15 +13,15 @@ import (
 type Agent struct {
 	client         *anthropic.Client
 	getUserMessage func() (string, bool)
-	tools          []ToolDefinition
+	tools          []tools.ToolDefinition
 }
 
 // NewAgent creates a new Agent instance
-func NewAgent(client *anthropic.Client, getUserMessage func() (string, bool), tools []ToolDefinition) *Agent {
+func NewAgent(client *anthropic.Client, getUserMessage func() (string, bool), toolDefs []tools.ToolDefinition) *Agent {
 	return &Agent{
 		client:         client,
 		getUserMessage: getUserMessage,
-		tools:          tools,
+		tools:          toolDefs,
 	}
 }
 
@@ -72,7 +73,7 @@ func (a *Agent) Run(ctx context.Context) error {
 
 // executeTool finds and executes the requested tool
 func (a *Agent) executeTool(id, name string, input json.RawMessage) anthropic.ContentBlockParamUnion {
-	var toolDef ToolDefinition
+	var toolDef tools.ToolDefinition
 	var found bool
 	for _, tool := range a.tools {
 		if tool.Name == name {

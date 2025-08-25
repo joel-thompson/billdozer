@@ -6,7 +6,12 @@ import (
 	"fmt"
 	"os"
 
+	"agent/internal/agent"
+	"agent/internal/tools"
 	"github.com/anthropics/anthropic-sdk-go"
+
+	// Import tool packages to register them
+	_ "agent/internal/tools/file"
 )
 
 // main is the application entry point
@@ -22,12 +27,12 @@ func main() {
 		return scanner.Text(), true
 	}
 
-	// Assemble available tools
-	tools := []ToolDefinition{ReadFileDefinition, ListFilesDefinition, EditFileDefinition}
+	// Get all registered tools from the registry
+	registeredTools := tools.DefaultRegistry.GetAll()
 
 	// Initialize and start agent
-	agent := NewAgent(&client, getUserMessage, tools)
-	err := agent.Run(context.TODO())
+	agentInstance := agent.NewAgent(&client, getUserMessage, registeredTools)
+	err := agentInstance.Run(context.TODO())
 	if err != nil {
 		fmt.Printf("Error: %s\n", err.Error())
 	}
