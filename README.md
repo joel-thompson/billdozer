@@ -68,6 +68,9 @@ Create test files alongside tool implementations. Test the `Execute` method dire
 ### Best Practices
 
 - Use descriptive JSON schema descriptions for better Claude integration
+- Add `jsonschema:"required"` tags for mandatory parameters
+- Include concrete usage examples in tool descriptions  
+- Provide actionable error messages with examples of correct usage
 - Group related tools in the same package
 - Handle errors gracefully with clear error messages
 - Use the `schema.GenerateSchema[T]()` helper for input validation
